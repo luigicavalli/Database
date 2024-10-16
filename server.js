@@ -38,7 +38,7 @@ const secretKey = process.env.SECRET_KEY;
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
 
-  const query = 'SELECT * FROM users WHERE email = ?';
+  const query = 'SELECT * FROM users INNER JOIN roles ON users.role_id = roles.id WHERE email = ?';
 
   connection.query(query, [email], async (error, results) => {
     if (error) {
@@ -68,82 +68,128 @@ app.post('/login', (req, res) => {
     res.status(200).json({
       message: 'Login effettuato con successo!',
       apiToken: jwtToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        surname: user.surname,
-        email: user.email,
-      },
+      user: user,
     });
   });
 });
 
 app.post('/sign-up', async (req, res) => {
-  const jwtToken = jwt.sign({ userID: 10 }, secretKey, { expiresIn: '1h' });
   const { name, surname, email, password } = req.body;
 
   try {
     const cryptedPassword = await bcrypt.hash(password, 10);
 
-    const query =
-      'INSERT INTO users (name, surname, email, password) VALUES (?, ?, ?, ?)';
+    const insertQuery = 'INSERT INTO users (name, surname, email, password) VALUES (?, ?, ?, ?)';
 
-    connection.query(
-      query,
-      [name, surname, email, cryptedPassword],
-      (error, results) => {
+    connection.query(insertQuery, [name, surname, email, cryptedPassword], (error, results) => {
+      if (error) {
+        console.error('Errore durante l\'inserimento:', error);
+        return res.status(500).json({ message: 'Errore durante l\'inserimento', error });
+      }
+
+      const userId = results.insertId;
+
+      const selectQuery = 'SELECT * FROM users WHERE id = ?';
+
+      connection.query(selectQuery, [userId], (error, results) => {
         if (error) {
-          console.error('Errore nel server:', error);
-          return res.status(500).json({ message: 'Errore nel server', error });
+          console.error('Errore durante la selezione:', error);
+          return res.status(500).json({ message: 'Errore durante la selezione', error });
         }
+
+        if (results.length === 0) {
+          return res.status(404).json({ message: 'Utente non trovato' });
+        }
+
+        const user = results[0];
+
+        const jwtToken = jwt.sign({ userID: user.id }, secretKey, {
+          expiresIn: '1h',
+        });
 
         res.status(201).json({
           message: 'Utente aggiunto con successo',
           apiToken: jwtToken,
-          name,
-          surname,
-          email,
+          user,
         });
-      }
-    );
+      });
+    });
   } catch (error) {
     console.error('Errore durante la criptazione della password:', error);
-    res
-      .status(500)
-      .json({ message: 'Errore durante la criptazione della password', error });
+    res.status(500).json({ message: 'Errore durante la criptazione della password', error });
   }
 });
 
-app.put('/edit/:id', (req, res) => {
-  const { id } = req.params;
 
+app.put('/edit/:id', async (req, res) => {
+  const { id } = req.params;
   const { name, surname, email, password } = req.body;
 
-  let cryptedPassword = null;
+  let updateFields = [];
+  let updateValues = [];
 
-  if (password) {
-    cryptedPassword = bcrypt.hashSync(password, 10);
+  if (name) {
+    updateFields.push('name = ?');
+    updateValues.push(name);
   }
 
-  const query = 'UPDATE users SET name = ?, surname = ?, email = ?, password = ? WHERE id = ?';
+  if (surname) {
+    updateFields.push('surname = ?');
+    updateValues.push(surname);
+  }
 
-  connection.query(
-    query,
-    [name, surname, email, cryptedPassword, id],
-    (error, results) => {
+  if (email) {
+    updateFields.push('email = ?');
+    updateValues.push(email);
+  }
+
+  if (password) {
+    const cryptedPassword = await bcrypt.hash(password, 10);
+    updateFields.push('password = ?');
+    updateValues.push(cryptedPassword);
+  }
+
+  if (updateFields.length === 0) {
+    return res.status(400).json({ message: 'Nessun campo da aggiornare fornito' });
+  }
+
+  const updateQuery = `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`;
+  updateValues.push(id);
+
+  connection.query(updateQuery, updateValues, (error, results) => {
+    if (error) {
+      console.error('Errore durante l\'aggiornamento:', error);
+      return res.status(500).json({ message: 'Errore del server', error });
+    }
+
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: 'Utente non trovato' });
+    }
+
+    const selectQuery = 'SELECT * FROM users WHERE id = ?';
+    connection.query(selectQuery, [id], (error, results) => {
       if (error) {
-        return res.status(500).json({ message: 'Errore del server', error });
+        console.error('Errore durante la selezione:', error);
+        return res.status(500).json({ message: 'Errore durante la selezione', error });
       }
 
-      if (results.affectedRows === 0) {
+      if (results.length === 0) {
         return res.status(404).json({ message: 'Utente non trovato' });
       }
 
-      res
-        .status(200)
-        .json({ message: 'Utente aggiornato con successo', results });
-    }
-  );
+      const user = results[0];
+
+      const jwtToken = jwt.sign({ userID: user.id }, secretKey, {
+        expiresIn: '1h',
+      });
+
+      res.status(200).json({
+        message: 'Utente aggiornato con successo',
+        apiToken: jwtToken,
+        user,
+      });
+    });
+  });
 });
 
 app.delete('/delete/:id', (req, res) => {
@@ -157,7 +203,7 @@ app.delete('/delete/:id', (req, res) => {
     }
     res.status(200).json({message: 'Utente eliminato con successo', results});
   })
-})
+});
 
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}`);
