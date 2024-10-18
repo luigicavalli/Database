@@ -38,7 +38,7 @@ const secretKey = process.env.SECRET_KEY;
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
 
-  const query = 'SELECT * FROM users INNER JOIN roles ON users.role_id = roles.id WHERE email = ?';
+  const query = 'SELECT * FROM users INNER JOIN roles ON users.role_id = roles.role_id WHERE email = ?';
 
   connection.query(query, [email], async (error, results) => {
     if (error) {
