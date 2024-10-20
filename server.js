@@ -33,6 +33,22 @@ app.get('/info', (req, res) => {
   res.status(200).json({ message: 'Success!' });
 });
 
+app.get('/users', (req, res) => {
+  const query = 'SELECT * FROM users';
+
+  connection.query(query, (error, results) => {
+    if (error) {
+      return res.status(500).json({ message: "Errore nel server" });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: "Utenti non trovati" });
+    }
+
+    res.status(200).json({ message: "Utenti caricati correttamente", users: results });
+  })
+})
+
 const secretKey = process.env.SECRET_KEY;
 
 app.post('/login', (req, res) => {
@@ -167,6 +183,7 @@ app.put('/edit/:id', async (req, res) => {
     }
 
     const selectQuery = 'SELECT * FROM users WHERE id = ?';
+    
     connection.query(selectQuery, [id], (error, results) => {
       if (error) {
         console.error('Errore durante la selezione:', error);
